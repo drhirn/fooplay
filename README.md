@@ -65,7 +65,7 @@ Wiring (plug-on HAT, signal mapping - all pins configurable):
 ```
 
 Common flags: `-display auto|epaper|fb|both`, `-poll 2s`, `-invert`,
-`-pin-*`, `-logfile`, `-debug`. See [README.md](README.md) for the full
+`-pin-*`, `-logfile`, `-debug`. See [README.md](/docs/README.md) for the full
 documentation (driver details, systemd unit, logrotate, troubleshooting).
 
 ## License
