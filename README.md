@@ -18,6 +18,8 @@ Full documentation here: [docs](/docs/README.md)
 <!-- SCREENSHOTS -->
 <!-- E-Paper: photograph of the 7.5" panel showing cover + artist/album/year + title -->
 <!-- LCD:      photo or capture of the HDMI screen with the same layout -->
+![fooplay on e-Paper display](docs/images/fooplay-1.jpg)
+![fooplay on LCD display](docs/images/fooplay-2.jpg)
 
 ## AI
 This tool was completely written by AI (Kimi). Even the README.md – except this passage. And even this was corrected by AI.
@@ -68,4 +70,4 @@ documentation (driver details, systemd unit, logrotate, troubleshooting).
 
 ## License
 
-MIT (or your choice - see LICENSE)
+MIT
