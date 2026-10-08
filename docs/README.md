@@ -4,7 +4,7 @@ Shows the track currently playing in foobar2000 on a Raspberry Pi
 **without a desktop environment** (Raspberry Pi OS Lite).
 
 Data source is the foobar2000 plugin **beefweb** on a remote machine
-(default: `http://10.168.1.1:8880`). Output goes either to:
+(default: `http://192.0.2.1:8880`). Output goes either to:
 
 * **Waveshare 7.5" e-paper (800x480, black/white)** - directly via SPI/GPIO
 * **regular LCD screens** - via the Linux framebuffer `/dev/fb0`
@@ -133,7 +133,7 @@ Cross-compile on a PC:
     After=network-online.target
 
     [Service]
-    ExecStart=/home/pi/fooplay/fooplay -addr http://10.168.1.1:8880 -logfile /var/log/fooplay.log
+    ExecStart=/home/pi/fooplay/fooplay -addr http://192.0.2.1:8880 -logfile /var/log/fooplay.log
     WorkingDirectory=/home/pi/fooplay
     Restart=always
     RestartSec=5
@@ -167,7 +167,7 @@ Then:
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `-addr` | `http://10.168.1.1:8880` | beefweb base URL |
+| `-addr` | `http://192.0.2.1:8880` | beefweb base URL |
 | `-display` | `auto` | `auto`, `epaper`, `fb` or `both` (e-paper + LCD at the same time) |
 | `-poll` | `2s` | polling interval for player data |
 | `-epaper-sleep` | off | deep sleep the e-paper between refreshes |
@@ -200,7 +200,7 @@ Everything above can be reproduced with a single prompt:
 ```text
 Write a Go program `fooplay` for Raspberry Pi OS Lite (headless, no
 desktop), standard library plus golang.org/x/image only. It polls the
-REST API of the foobar2000 plugin beefweb at http://10.168.1.1:8880
+REST API of the foobar2000 plugin beefweb at http://192.0.2.1:8880
 every 2 s (GET /api/query?player=true&trcolumns=%artist%,%title%,%album%,%date%)
 and shows the now-playing info directly on a display, all via CLI flags.
 
