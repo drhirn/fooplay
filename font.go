@@ -1,21 +1,25 @@
 package main
 
-// font.go - text engine based on the Go font embedded in the
-// golang.org/x/image module (gofont/goregular).
+// font.go - text engine based on DejaVu Sans Bold, embedded into the
+// binary (strong strokes, designed for low-resolution rendering).
 // Anti-aliased and arbitrarily scalable, so it stays crisp on
-// Full-HD LCDs as well. Bold is simulated by overdrawing.
+// Full-HD LCDs as well. The font is bold by itself - no simulated
+// overdraw, so no gray halos on 1-bit displays.
 
 import (
+	_ "embed"
 	"image"
 	"image/color"
 	"strings"
 	"sync"
 
 	"golang.org/x/image/font"
-	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 )
+
+//go:embed DejaVuSans-Bold.ttf
+var fontData []byte
 
 var (
 	goFont    *opentype.Font
@@ -24,7 +28,7 @@ var (
 )
 
 func init() {
-	f, err := opentype.Parse(goregular.TTF)
+	f, err := opentype.Parse(fontData)
 	if err != nil {
 		panic(err)
 	}
@@ -49,20 +53,8 @@ func getFace(sizePx float64) font.Face {
 	return f
 }
 
-func boldExtra(sizePx float64) int {
-	e := int(sizePx / 36)
-	if e < 1 {
-		e = 1
-	}
-	return e
-}
-
 func textWidth(s string, sizePx float64, bold bool) float64 {
-	w := font.MeasureString(getFace(sizePx), s).Ceil()
-	if bold {
-		w += boldExtra(sizePx)
-	}
-	return float64(w)
+	return float64(font.MeasureString(getFace(sizePx), s).Ceil())
 }
 
 func fitText(s string, sizePx, maxWidth float64, bold bool) string {
@@ -79,15 +71,13 @@ func fitText(s string, sizePx, maxWidth float64, bold bool) string {
 // drawText draws s; y is the TOP of the line. maxWidth in pixels.
 func drawText(img *image.RGBA, x, y float64, s string, sizePx, maxWidth float64, c color.Color, bold bool) {
 	s = fitText(s, sizePx, maxWidth, bold)
-	f := getFace(sizePx)
-	d := &font.Drawer{Dst: img, Src: image.NewUniform(c), Face: f}
-	base := int(y + sizePx*0.88)
-	d.Dot = fixed.P(int(x), base)
-	d.DrawString(s)
-	if bold {
-		d.Dot = fixed.P(int(x)+boldExtra(sizePx), base)
-		d.DrawString(s)
+	d := &font.Drawer{
+		Dst:  img,
+		Src:  image.NewUniform(c),
+		Face: getFace(sizePx),
 	}
+	d.Dot = fixed.P(int(x), int(y+sizePx*0.88))
+	d.DrawString(s)
 }
 
 // wrapText breaks s at spaces so that no line exceeds maxWidth.

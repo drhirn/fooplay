@@ -587,7 +587,7 @@ func toEPaper(img *image.RGBA, dither image.Rectangle) []byte {
 				th := uint32(bayer4[y&3][x&3])*16 + 8
 				white = lum > th
 			} else {
-				white = lum > 100 // lower threshold = bolder strokes
+				white = lum > 165 // very thin strokes; near the practical limit
 			}
 			if white {
 				buf[y*(w/8)+x/8] |= 0x80 >> uint(x%8)

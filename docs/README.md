@@ -4,7 +4,7 @@ Shows the track currently playing in foobar2000 on a Raspberry Pi
 **without a desktop environment** (Raspberry Pi OS Lite).
 
 Data source is the foobar2000 plugin **beefweb** on a remote machine
-(default: `http://192.0.2.1:8880`). Output goes either to:
+(default: `http://10.168.1.1:8880`). Output goes either to:
 
 * **Waveshare 7.5" e-paper (800x480, black/white)** - directly via SPI/GPIO
 * **regular LCD screens** - via the Linux framebuffer `/dev/fb0`
@@ -12,6 +12,14 @@ Data source is the foobar2000 plugin **beefweb** on a remote machine
 
 Only dependency: golang.org/x/image (embedded Go font).
 Run `go mod tidy` once before building (needs internet).
+
+## AI
+
+This tool was completely written by AI (Kimi). Even the README.md – except this passage. And even this was corrected by AI.
+
+I always wanted a display showing the song currently playing in foobar2000 while I'm gaming or otherwise unable to look at the foobar2000 window. But I suffered from a complete lack of skills. And although I'm not a friend of AI, I had the feeling that someday I would have to try it out. And that's where fooplay comes in.
+
+It was a weird experience, and I still don't know what to think about AI – especially about outsourcing (programming) work to it. Nevertheless, after days of work I got this little tool running, which I'm happy about. But it's not the "yeah, I did this by myself" feeling I always had in pre-AI times, when I was forced to think things through and actually learn something.
 
 ## What is shown
 
@@ -41,8 +49,9 @@ Everything turns back on automatically when playback resumes.
 (ERROR)). Add `-debug` to log every display decision.
 
 **E-paper conversion:** the cover is converted with ordered Bayer
-dithering (preserves gray tones), text and shapes with a hard threshold
-at luminance 100 (razor sharp, sufficiently bold).
+dithering (preserves gray tones); text and shapes use a hard threshold
+at luminance 127 followed by a 1-pixel dilation - razor sharp and bold
+without gray-halo fringing.
 
 ## Wiring e-paper (Waveshare 7.5" HAT on Raspberry Pi)
 
@@ -133,7 +142,7 @@ Cross-compile on a PC:
     After=network-online.target
 
     [Service]
-    ExecStart=/home/pi/fooplay/fooplay -addr http://192.0.2.1:8880 -logfile /var/log/fooplay.log
+    ExecStart=/home/pi/fooplay/fooplay -addr http://10.168.1.1:8880 -logfile /var/log/fooplay.log
     WorkingDirectory=/home/pi/fooplay
     Restart=always
     RestartSec=5
@@ -167,7 +176,7 @@ Then:
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `-addr` | `http://192.0.2.1:8880` | beefweb base URL |
+| `-addr` | `http://10.168.1.1:8880` | beefweb base URL |
 | `-display` | `auto` | `auto`, `epaper`, `fb` or `both` (e-paper + LCD at the same time) |
 | `-poll` | `2s` | polling interval for player data |
 | `-epaper-sleep` | off | deep sleep the e-paper between refreshes |
@@ -186,7 +195,8 @@ Then:
 | `main.go` | flags, main loop, display selection, state machine, logging |
 | `beefweb.go` | REST client (`/api/query`, `/api/artwork/current`) |
 | `render.go` | layout, cover, text block, theme |
-| `font.go` | text engine (gofont), wrapping, fitting |
+| `font.go` | text engine (DejaVu Sans Bold), wrapping, fitting |
+| `DejaVuSans-Bold.ttf` | embedded font (Bitstream Vera/DejaVu license, see below) |
 | `epaper.go` | e-paper driver (SPI, GPIO sysfs/v1/v2, panel init) |
 | `fbdev.go` | LCD driver (framebuffer, blanking) |
 
@@ -200,7 +210,7 @@ Everything above can be reproduced with a single prompt:
 ```text
 Write a Go program `fooplay` for Raspberry Pi OS Lite (headless, no
 desktop), standard library plus golang.org/x/image only. It polls the
-REST API of the foobar2000 plugin beefweb at http://192.0.2.1:8880
+REST API of the foobar2000 plugin beefweb at http://10.168.1.1:8880
 every 2 s (GET /api/query?player=true&trcolumns=%artist%,%title%,%album%,%date%)
 and shows the now-playing info directly on a display, all via CLI flags.
 

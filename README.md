@@ -13,15 +13,12 @@ over the network and renders cover, artist, title, album and year on:
 Written in Go, single dependency (`golang.org/x/image`), console stays
 silent, logs only errors/warnings.
 
-Full documentation here: [docs](/docs/README.md)
-
-<!-- SCREENSHOTS -->
-<!-- E-Paper: photograph of the 7.5" panel showing cover + artist/album/year + title -->
-<!-- LCD:      photo or capture of the HDMI screen with the same layout -->
-![fooplay on e-Paper display](docs/images/fooplay-1.jpg)
-![fooplay on LCD display](docs/images/fooplay-2.jpg)
+| ![fooplay on the Waveshare 7.5" e-paper](docs/images/epaper.jpg) | ![fooplay on an LCD screen](docs/images/lcd.jpg) |
+|:---:|:---:|
+| Waveshare 7.5" e-paper | LCD via framebuffer |
 
 ## AI
+
 This tool was completely written by AI (Kimi). Even the README.md – except this passage. And even this was corrected by AI.
 
 I always wanted a display showing the song currently playing in foobar2000 while I'm gaming or otherwise unable to look at the foobar2000 window. But I suffered from a complete lack of skills. And although I'm not a friend of AI, I had the feeling that someday I would have to try it out. And that's where fooplay comes in.
@@ -65,7 +62,7 @@ Wiring (plug-on HAT, signal mapping - all pins configurable):
 ```
 
 Common flags: `-display auto|epaper|fb|both`, `-poll 2s`, `-invert`,
-`-pin-*`, `-logfile`, `-debug`. See [README.md](/docs/README.md) for the full
+`-pin-*`, `-logfile`, `-debug`. See [README.md](README.md) for the full
 documentation (driver details, systemd unit, logrotate, troubleshooting).
 
 ## License

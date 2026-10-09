@@ -84,10 +84,10 @@ func render(vm ViewModel, W, H int, invert bool) (*image.RGBA, image.Rectangle) 
 
 	// Cover on the left, artist/album/year stacked to its right in the
 	// upper zone; the song title spans the full width below.
-	sArtist := float64(H) * 0.10
-	sAlbum := float64(H) * 0.08
-	sYear := float64(H) * 0.07
-	sTitle := float64(H) * 0.15
+	sArtist := float64(H) * 0.09
+	sAlbum := float64(H) * 0.07
+	sYear := float64(H) * 0.06
+	sTitle := float64(H) * 0.14
 
 	// title area at the bottom (up to two lines)
 	titleLines := wrapText(vm.Title, sTitle, float64(W)-2*m, true, 2)
@@ -114,7 +114,14 @@ func render(vm ViewModel, W, H int, invert bool) (*image.RGBA, image.Rectangle) 
 		tw = float64(W) - 2*m
 	}
 
-	infos := []textLine{{vm.Artist, sArtist, true}, {vm.Album, sAlbum, false}}
+	// artist and title wrap onto up to two lines when needed
+	infos := []textLine{}
+	for _, al := range wrapText(vm.Artist, sArtist, tw, true, 2) {
+		infos = append(infos, textLine{al, sArtist, true})
+	}
+	for _, al := range wrapText(vm.Album, sAlbum, tw, false, 2) {
+		infos = append(infos, textLine{al, sAlbum, false})
+	}
 	if vm.Year != "" {
 		infos = append(infos, textLine{vm.Year, sYear, false})
 	}
@@ -128,10 +135,11 @@ func render(vm ViewModel, W, H int, invert bool) (*image.RGBA, image.Rectangle) 
 		iy += l.size * 1.15
 	}
 
-	// title below cover and info, full width
+	// title below cover and info, horizontally centered, full width
 	ty := contentBot + m*0.5
 	for _, l := range titleLines {
-		drawText(img, m, ty, l, sTitle, float64(W)-2*m, fg, true)
+		tx2 := (float64(W) - textWidth(l, sTitle, true)) / 2
+		drawText(img, tx2, ty, l, sTitle, float64(W)-2*m, fg, true)
 		ty += sTitle * 1.15
 	}
 
