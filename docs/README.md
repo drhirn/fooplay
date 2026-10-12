@@ -254,19 +254,53 @@ Everything above can be reproduced with a single prompt:
 
 ```text
 Write a Go program `fooplay` for Raspberry Pi OS Lite (headless, no
-desktop), standard library plus golang.org/x/image only. It polls the
-REST API of the foobar2000 plugin beefweb at http://192.0.2.1:8880
-every 2 s (GET /api/query?player=true&trcolumns=%artist%,%title%,%album%,%date%)
-and shows the now-playing info directly on a display, all via CLI flags.
+desktop), standard library plus golang.org/x/image only. It displays
+the currently playing song on a Waveshare 7.5" e-paper display
+(800x480, SPI) or an LCD via /dev/fb0, reading the track from foobar2000
+( via the beefweb plugin) and/or a Jellyfin media server.
 
-Display abstraction (interface Display with Push(img, ditherRect,
-structuralChange)) with two backends; in `-display auto` try the
-e-paper first and fall back to the LCD with a logged warning if no
-panel responds (spidev0.0 exists as soon as SPI is enabled):
+**Configuration - NO built-in defaults.**
+- All settings come from a JSON config file (default `fooplay.conf` in
+  the working directory; `-config` overrides the path, empty disables,
+  a missing default file is silently ignored) or from command line
+  flags; CLI flags ALWAYS win (use flag.Visit to detect them).
+- The config file may contain // line comments and /* */ block comments
+  (strip them before json.Unmarshal, string-safe). Unknown keys and
+  invalid values are fatal errors with the file name.
+- After parsing, validate: every required option must be set from file
+  or CLI, otherwise exit with an error listing what is missing.
+- Required: source, display, poll, spi, gpiochip, fb, pin-rst, pin-dc,
+  pin-busy, pin-pwr (use -1/"" as unset sentinels; pin-pwr 0 means
+  "no PWR pin"); addr (except for -source jellyfin); jellyfin-addr and
+  apikey (for -source jellyfin/both). Optional switches: invert,
+  epaper-sleep, debug (off unless set); logfile (empty = no logging).
 
+**Player sources (interface PlayerSource { Fetch() ViewModel;
+FetchCover() (image.Image, bool) }):**
+- `beefweb`: GET <addr>/api/query?player=true&trcolumns=
+  %artist%,%title%,%album%,%date% -> playing item, position, state.
+  Cover: GET /api/artwork/current.
+- `jellyfin`: GET <jellyfin-addr>/Sessions with BOTH headers
+  X-Emby-Token and Authorization: MediaBrowser Token="<apikey>"
+  (some versions reject one of them). Pick the first session with
+  NowPlayingItem.Type == "Audio", optionally filtered by -jellyfin-user
+  (name or id). Map Name/Album/Artists(joined)/ProductionYear/
+  RunTimeTicks and PlayState (1 tick = 100 ns). Cover:
+  /Items/<id>/Images/Primary?maxWidth=600.
+- `both` (multisource.go): foobar/beefweb has priority whenever it is
+  playing; on stop/pause/unreachable, jellyfin is consulted. If neither
+  plays: preserve "paused" if either source is paused (keep the song's
+  image), report "stopped" if at least one is reachable/idle, "error"
+  only when both are unreachable. Track the last-serving source so
+  FetchCover asks the right one.
+
+**Display backends (interface Display with Push(img, ditherRect,
+structuralChange), Sleep(), PowerOff(), Close(), Bounds()); -display
+auto tries e-paper first, falls back to LCD with a logged warning,
+"both" drives both:**
 1. Waveshare 7.5" e-paper 800x480:
-   - SPI via /dev/spidev0.0 using raw ioctls (SPI_IOC_MESSAGE computed
-     from unsafe.Sizeof, mode 0, 4 MHz). Send EVERY byte as its own SPI
+   - SPI via /dev/spidev0.0 using raw ioctls (SPI_IOC_MESSAGE from
+     unsafe.Sizeof, mode 0, 4 MHz). Send EVERY byte as its own SPI
      transaction (CS toggles per byte), like the official examples.
    - GPIO with three automatic fallbacks: /sys/class/gpio (legacy),
      /dev/gpiochip0 v1 line API (GPIO_GET_LINEHANDLE etc.), v2 API
@@ -275,50 +309,59 @@ panel responds (spidev0.0 exists as soon as SPI is enabled):
      448 bytes: offsets[64]u32, consumer[32]byte, config{flags u64,
      num_attrs u32, padding[5]u32, attrs[4]{id u32,pad u32,val u64,
      mask u64}}, num_lines u32, event_buffer_size u32, padding[5]u32,
-     fd i32). Pins: RST=17, DC=25, BUSY=24, PWR-EN=18 (drive high at
-     startup, low on shutdown; panel is dead without it on newer HATs).
+     fd i32). Pins: RST=17, DC=25, BUSY=24, PWR EN=18 - drive PWR high
+     at startup (panel is dead without it on newer HATs), low on
+     shutdown; re-apply on every display() after PowerOff.
    - Panel init per Waveshare epd7in5_V2 reference (older panel
      revisions): reset 200/2/200 ms, cmd 0x06 data 17 17 28 17, cmd 0x01
      data 07 07 28 17 (VDH=15V, VDL=-15V; NOT 3f 3f), cmd 0x04 POWER ON,
-     100 ms, then cmd 0x61 (03 20 01 E0), 0x15 (00), 0x50 (10 07),
-     0x60 (22), 0x00 (1F). CRITICAL: poll BUSY only after sending status
-     command 0x71 before each read - without it the BUSY pin never
-     changes on older panels.
+     100 ms, then 0x61 (03 20 01 E0), 0x15 (00), 0x50 (10 07),
+     0x60 (22), 0x00 (1F). CRITICAL: poll BUSY only after sending
+     status command 0x71 before each read - without it the BUSY pin
+     never changes on older panels.
    - Full refresh ONLY: cmd 0x10 + framebuffer, cmd 0x13 + inverted
-     framebuffer, cmd 0x12, wait busy. No fast refresh, no periodic
-     refreshes, ever.
+     framebuffer, cmd 0x12, wait busy. Push with structuralChange=false
+     does NOTHING - no periodic refreshes, no progress updates, ever.
    - 1-bit conversion: ordered 4x4 Bayer dithering INSIDE the cover
-     rectangle (passed as ditherRect), hard threshold (luminance > 100)
-     everywhere else, so text is razor sharp.
+     rectangle (ditherRect from render()), hard threshold (luminance >
+     100) everywhere else.
+2. LCD via /dev/fb0: fb_var_screeninfo (FBIOGET_VSCREENINFO), 16/24/32
+   bpp via the RGB bitfields, mmap, write pixels; on startup disable
+   the blinking console cursor (cursor_blink=0 and ESC[2J ESC[?25l to
+   /dev/tty1); PowerOff() = FBIOBLANK FB_BLANK_POWERDOWN, Push
+   unblanks.
 
-2. LCD via /dev/fb0: read fb_var_screeninfo (FBIOGET_VSCREENINFO),
-   support 16/24/32 bpp via the RGB bitfields, mmap, write pixels;
-   disable blinking console cursor on startup (cursor_blink=0 and
-   ESC[2J ESC[?25l to /dev/tty1); PowerOff() = FBIOBLANK
-   FB_BLANK_POWERDOWN, Push unblanks.
+**State machine (main loop, poll every `poll` interval):**
+- playing: render + Push with structuralChange only on track change or
+  state change; cover art fetched only on track change (cached by
+  track key).
+- paused: do nothing - the last image stays on the display.
+- stopped / connection error: render the full background color, Push,
+  then PowerOff(). Everything wakes automatically on the next Push.
 
-Rendering (light theme by default: white background, black text;
--invert for dark): embedded Go font (gofont/goregular via x/image,
-bold simulated by overdrawing), all sizes relative to screen height.
-Layout: cover (from GET /api/artwork/current, cached per track,
-center-cropped to square, vinyl placeholder otherwise) frameless on the
-left; artist, album, year stacked to its right (artist bold);
-song title spans the full width below, wrapping onto up to 2 lines.
-No progress bar, no status icon.
+**Rendering (light theme by default: white background, black text;
+-invert for dark): embedded DejaVu Sans Bold via go:embed (no
+simulated overdraw - no gray halos), anti-aliased, all sizes relative
+to screen height: artist 0.09*H, title 0.14*H, album 0.07*H, year
+0.06*H. Layout: cover (from FetchCover, cached per track, center-cropped
+to square, vinyl placeholder otherwise) frameless on the left; artist,
+album, year stacked to its right, each wrapping onto up to 2 lines;
+the song title spans the full width below, horizontally centered,
+wrapping onto up to 2 lines. No progress bar, no status icon.
+On error/stopped the screen is just the background color.
 
-State machine: while playing, render+Push with structuralChange only on
-track change (or state change); cover fetched only on track change. On
-pause: PowerOff(). On stop/connection error: render full background
-color, Push, then PowerOff(). Everything wakes automatically on the
-next Push.
+**Logging:** console completely silent; errors/warnings only to -logfile
+(empty = none); optional -debug logs every push decision.
 
-Logging: console completely silent; errors/warnings only to -logfile
-(default fooplay.log, empty = none); optional -debug logs every push
-decision.
+Use 192.0.2.0/24 (RFC 5737 TEST-NET-1) for ALL example IPs (beefweb =
+192.0.2.1:8880, jellyfin = 192.0.2.16:8096) - never real-looking
+ranges.
 
-Deliver clean, commented English files (main.go, beefweb.go, render.go,
-font.go, epaper.go, fbdev.go), go.mod and an English README covering
-wiring (incl. PWR pin), the three GPIO fallback paths, the 0x71 busy
-quirk, build (go mod tidy && go build), systemd unit and logrotate
-config.
+Deliver clean, commented English files: main.go, config.go, beefweb.go,
+jellyfin.go, multisource.go, render.go, font.go, epaper.go, fbdev.go,
+go.mod, an embedded DejaVuSans-Bold.ttf, a commented
+fooplay.conf.example, a short English root README.md and a full
+docs/README.md (wiring incl. PWR pin, the three GPIO fallbacks, the
+0x71 busy quirk, jellyfin setup incl. API key, systemd unit, logrotate
+config, this regeneration prompt).
 ```
