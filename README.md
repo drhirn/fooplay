@@ -27,7 +27,9 @@ It was a weird experience, and I still don't know what to think about AI – esp
 
 ## Features
 
-* Cover art from beefweb (`/api/artwork/current`), vinyl placeholder as fallback
+* Player sources: foobar2000 via beefweb and/or a Jellyfin media server
+  (`-source beefweb|jellyfin|both` - foobar has priority, jellyfin
+  fallback); cover art included, vinyl placeholder as fallback
 * Light theme by default (`-invert` for dark)
 * Refresh only on track change - no periodic refreshes, e-paper-friendly
 * Pause / stop / connection loss: display switches off completely
@@ -58,7 +60,7 @@ Wiring (plug-on HAT, signal mapping - all pins configurable):
 ## Usage
 
 ```
-./fooplay -addr http://10.168.1.1:8880 -display epaper -logfile fooplay.log
+./fooplay -addr http://192.0.2.1:8880 -display epaper -logfile fooplay.log
 ```
 
 Common flags: `-display auto|epaper|fb|both`, `-poll 2s`, `-invert`,

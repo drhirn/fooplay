@@ -1,0 +1,18 @@
+{
+  "source": "both",
+  "addr": "http://192.0.2.1:8880",
+  "jellyfin-addr": "http://192.0.2.16:8096",
+  "apikey": "YOUR_JELLYFIN_API_KEY",
+  "display": "epaper",
+  "poll": "2s",
+  "spi": "/dev/spidev0.0",
+  "gpiochip": "/dev/gpiochip0",
+  "fb": "/dev/fb0",
+  "pin-rst": 17,
+  "pin-dc": 25,
+  "pin-busy": 24,
+  "pin-pwr": 18,
+  "invert": false,
+  "epaper-sleep": false,
+  "logfile": "fooplay.log"
+}

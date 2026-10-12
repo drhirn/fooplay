@@ -3,8 +3,12 @@
 Shows the track currently playing in foobar2000 on a Raspberry Pi
 **without a desktop environment** (Raspberry Pi OS Lite).
 
-Data source is the foobar2000 plugin **beefweb** on a remote machine
-(default: `http://10.168.1.1:8880`). Output goes either to:
+Data source is either the foobar2000 plugin **beefweb**
+(default: `http://192.0.2.1:8880`), a **Jellyfin** media server
+(`-source jellyfin`, requires an API key from the Jellyfin dashboard),
+or **both** at once (`-source both`): foobar has priority whenever it is
+playing; on stop/pause/unreachable, jellyfin is consulted. Output goes
+either to:
 
 * **Waveshare 7.5" e-paper (800x480, black/white)** - directly via SPI/GPIO
 * **regular LCD screens** - via the Linux framebuffer `/dev/fb0`
@@ -36,7 +40,7 @@ The screen only changes when the track changes. Display states:
 | foobar2000 state | display behavior |
 |---|---|
 | playing | song screen; one full refresh per track change |
-| paused | switched off completely (panel supply cut / LCD blanking) |
+| paused | last image stays on the display |
 | stopped / connection error | blank screen in background color, then off |
 
 Everything turns back on automatically when playback resumes.
@@ -133,6 +137,38 @@ Cross-compile on a PC:
     ./fooplay -display fb -invert      # LCD with dark theme
     ./fooplay -display both            # e-paper AND LCD simultaneously
 
+## Configuration file
+
+fooplay has **no built-in defaults**: every required setting must come
+from the config file (default `fooplay.conf` in the working directory)
+or from the command line - if neither provides a value, fooplay exits
+with an error listing what is missing. Explicitly passed command line
+flags always override the file. Keys are the flag names without dashes,
+values strings, numbers or booleans; pure switches (`invert`,
+`epaper-sleep`, `debug`) are off unless set. See `fooplay.conf.example`:
+
+```json
+{
+  "source": "both",
+  "addr": "http://192.0.2.1:8880",
+  "jellyfin-addr": "http://192.0.2.16:8096",
+  "apikey": "YOUR_JELLYFIN_API_KEY",
+  "display": "epaper",
+  "poll": "2s",
+  "spi": "/dev/spidev0.0",
+  "gpiochip": "/dev/gpiochip0",
+  "fb": "/dev/fb0",
+  "pin-rst": 17,
+  "pin-dc": 25,
+  "pin-busy": 24,
+  "pin-pwr": 18,
+  "logfile": "fooplay.log"
+}
+```
+
+Example: `fooplay -invert` uses every value from the file except the
+theme, which comes from the command line.
+
 ## As a service (systemd)
 
 `/etc/systemd/system/fooplay.service`:
@@ -142,7 +178,7 @@ Cross-compile on a PC:
     After=network-online.target
 
     [Service]
-    ExecStart=/home/pi/fooplay/fooplay -addr http://10.168.1.1:8880 -logfile /var/log/fooplay.log
+    ExecStart=/home/pi/fooplay/fooplay -addr http://192.0.2.1:8880 -logfile /var/log/fooplay.log
     WorkingDirectory=/home/pi/fooplay
     Restart=always
     RestartSec=5
@@ -176,7 +212,11 @@ Then:
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `-addr` | `http://10.168.1.1:8880` | beefweb base URL |
+| `-source` | `beefweb` | player source: `beefweb`, `jellyfin` or `both` |
+| `-addr` | `http://192.0.2.1:8880` | beefweb base URL |
+| `-jellyfin-addr` | `http://192.0.2.16:8096` | jellyfin server URL |
+| `-apikey` | | jellyfin API key (required for jellyfin/both) |
+| `-jellyfin-user` | | jellyfin user whose session to show (empty = any) |
 | `-display` | `auto` | `auto`, `epaper`, `fb` or `both` (e-paper + LCD at the same time) |
 | `-poll` | `2s` | polling interval for player data |
 | `-epaper-sleep` | off | deep sleep the e-paper between refreshes |
@@ -187,18 +227,22 @@ Then:
 | `-pin-rst` / `-pin-dc` / `-pin-busy` / `-pin-pwr` | 17 / 25 / 24 / 18 | GPIO mapping (0 disables PWR) |
 | `-logfile` | `fooplay.log` | log file for errors/warnings (empty = none) |
 | `-debug` | off | log every display decision |
+| `-config` | `fooplay.conf` | JSON config file; CLI flags override its values |
 
 ## Files
 
 | File | Content |
 |------|---------|
 | `main.go` | flags, main loop, display selection, state machine, logging |
-| `beefweb.go` | REST client (`/api/query`, `/api/artwork/current`) |
+| `beefweb.go` | REST client for beefweb (`/api/query`, `/api/artwork/current`) |
+| `jellyfin.go` | REST client for jellyfin (`/Sessions`, `/Items/{id}/Images/Primary`) |
+| `multisource.go` | source combiner: foobar (beefweb) priority, jellyfin fallback |
 | `render.go` | layout, cover, text block, theme |
 | `font.go` | text engine (DejaVu Sans Bold), wrapping, fitting |
 | `DejaVuSans-Bold.ttf` | embedded font (Bitstream Vera/DejaVu license, see below) |
 | `epaper.go` | e-paper driver (SPI, GPIO sysfs/v1/v2, panel init) |
 | `fbdev.go` | LCD driver (framebuffer, blanking) |
+| `config.go` | JSON config file loader (CLI wins) |
 
 The queried metadata columns are defined in `beefweb.go`
 (`%artist%,%title%,%album%,%date%`) and can be extended there.
@@ -210,7 +254,7 @@ Everything above can be reproduced with a single prompt:
 ```text
 Write a Go program `fooplay` for Raspberry Pi OS Lite (headless, no
 desktop), standard library plus golang.org/x/image only. It polls the
-REST API of the foobar2000 plugin beefweb at http://10.168.1.1:8880
+REST API of the foobar2000 plugin beefweb at http://192.0.2.1:8880
 every 2 s (GET /api/query?player=true&trcolumns=%artist%,%title%,%album%,%date%)
 and shows the now-playing info directly on a display, all via CLI flags.
 

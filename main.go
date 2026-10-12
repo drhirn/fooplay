@@ -32,27 +32,76 @@ type Display interface {
 	Close()
 }
 
+// PlayerSource abstracts the music player backend (beefweb or jellyfin).
+type PlayerSource interface {
+	Fetch() ViewModel
+	FetchCover() (image.Image, bool)
+}
+
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
 }
 
 func main() {
-	addr := flag.String("addr", "http://10.168.1.1:8880", "beefweb base URL (e.g. http://10.168.1.1:8880)")
-	displayFlag := flag.String("display", "auto", "display type: auto|epaper|fb|both")
-	poll := flag.Duration("poll", 2*time.Second, "polling interval for player data")
+	addr := flag.String("addr", "", "beefweb base URL, or jellyfin server URL with -source jellyfin")
+	sourceFlag := flag.String("source", "", "player source: beefweb, jellyfin or both (foobar has priority, jellyfin as fallback)")
+	apiKey := flag.String("apikey", "", "jellyfin API key (required for -source jellyfin/both)")
+	jellyfinUser := flag.String("jellyfin-user", "", "jellyfin user name or id whose session to display (empty = any session playing audio)")
+	jellyfinAddr := flag.String("jellyfin-addr", "", "jellyfin server URL (for -source jellyfin/both; -addr stays the beefweb URL)")
+	displayFlag := flag.String("display", "", "display type: auto|epaper|fb|both")
+	poll := flag.Duration("poll", 0, "polling interval for player data (e.g. 2s)")
 	eSleep := flag.Bool("epaper-sleep", false, "put the e-paper into deep sleep between updates")
 	invert := flag.Bool("invert", false, "dark theme (default: white background)")
-	spiDev := flag.String("spi", "/dev/spidev0.0", "SPI device for the e-paper")
-	gpioChip := flag.String("gpiochip", "/dev/gpiochip0", "GPIO character device (Pi 5 / fallback when sysfs GPIO is unavailable)")
-	fbDev := flag.String("fb", "/dev/fb0", "framebuffer device for LCD")
-	pinRST := flag.Int("pin-rst", 17, "GPIO pin: RST")
-	pinDC := flag.Int("pin-dc", 25, "GPIO pin: DC")
-	pinBUSY := flag.Int("pin-busy", 24, "GPIO pin: BUSY")
-	pinPWR := flag.Int("pin-pwr", 18, "GPIO pin: panel power enable (0 = disabled, for older HATs)")
-	logFile := flag.String("logfile", "fooplay.log", "log file for errors/warnings (empty = no logging)")
+	spiDev := flag.String("spi", "", "SPI device for the e-paper")
+	gpioChip := flag.String("gpiochip", "", "GPIO character device (Pi 5 / fallback when sysfs GPIO is unavailable)")
+	fbDev := flag.String("fb", "", "framebuffer device for LCD")
+	pinRST := flag.Int("pin-rst", -1, "GPIO pin: RST")
+	pinDC := flag.Int("pin-dc", -1, "GPIO pin: DC")
+	pinBUSY := flag.Int("pin-busy", -1, "GPIO pin: BUSY")
+	pinPWR := flag.Int("pin-pwr", -1, "GPIO pin: panel power enable (0 = disabled, for older HATs)")
+	logFile := flag.String("logfile", "", "log file for errors/warnings (empty = no logging)")
 	debug := flag.Bool("debug", false, "log every display decision (diagnostics)")
-	flag.Parse()
+	configPath := flag.String("config", "fooplay.conf", "JSON config file; command line flags override its values (empty = none, missing default = ignored)")
+flag.Parse()
+
+	// Load the config file; CLI flags take precedence over it.
+	configExplicit := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "config" {
+			configExplicit = true
+		}
+	})
+	if err := applyConfig(*configPath, configExplicit); err != nil {
+		log.Fatalf("config: %v", err)
+	}
+
+	// No built-in defaults: every setting must come from the config
+	// file or the command line, otherwise fooplay refuses to start.
+	var missing []string
+	need := func(name string, ok bool) {
+		if !ok {
+			missing = append(missing, name)
+		}
+	}
+	need("source", *sourceFlag != "")
+	need("display", *displayFlag != "")
+	need("addr", *addr != "" || *sourceFlag == "jellyfin")
+	if *sourceFlag == "jellyfin" || *sourceFlag == "both" {
+		need("jellyfin-addr", *jellyfinAddr != "")
+		need("apikey", *apiKey != "")
+	}
+	need("poll", *poll > 0)
+	need("spi", *spiDev != "")
+	need("gpiochip", *gpioChip != "")
+	need("fb", *fbDev != "")
+	need("pin-rst", *pinRST >= 0)
+	need("pin-dc", *pinDC >= 0)
+	need("pin-busy", *pinBUSY >= 0)
+	need("pin-pwr", *pinPWR >= 0)
+	if len(missing) > 0 {
+		log.Fatalf("missing required settings (config file or command line): %v - nothing runs on built-in defaults", missing)
+	}
 
 	// Console stays completely silent; only errors and warnings are
 	// logged.
@@ -115,7 +164,23 @@ func main() {
 	// first one's); the layout scales relative to height anyway.
 	w, h := displays[0].Bounds()
 
-	client := NewBeefweb(*addr)
+	var client PlayerSource
+	newJellyfin := func() PlayerSource {
+		if *apiKey == "" {
+			log.Fatal("-apikey is required with -source jellyfin/both")
+		}
+		return NewJellyfin(*jellyfinAddr, *apiKey, *jellyfinUser)
+	}
+	switch *sourceFlag {
+	case "beefweb":
+		client = NewBeefweb(*addr)
+	case "jellyfin":
+		client = newJellyfin()
+	case "both":
+		client = &fallbackSource{primary: NewBeefweb(*addr), secondary: newJellyfin()}
+	default:
+		log.Fatalf("unknown source: %q", *sourceFlag)
+	}
 	lastKey := ""
 	lastCoverKey := ""
 	lastTrackShown := ""
@@ -161,12 +226,8 @@ func main() {
 		} else if stateChanged {
 			switch vm.State {
 			case "paused":
-				// Displays off completely.
-				for _, d := range displays {
-					if err := d.PowerOff(); err != nil {
-						log.Printf("ERROR display power off: %v", err)
-					}
-				}
+				// Keep the last image on the display; nothing to do
+				// (e-paper holds the picture without further refreshes).
 			default:
 				// Stopped or connection error: first a blank screen in
 				// the background color (white by default, black with
