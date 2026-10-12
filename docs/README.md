@@ -145,7 +145,8 @@ or from the command line - if neither provides a value, fooplay exits
 with an error listing what is missing. Explicitly passed command line
 flags always override the file. Keys are the flag names without dashes,
 values strings, numbers or booleans; pure switches (`invert`,
-`epaper-sleep`, `debug`) are off unless set. See `fooplay.conf.example`:
+`epaper-sleep`, `debug`) are off unless set. `//` line comments and
+`/* */` block comments are allowed. See `fooplay.conf.example`:
 
 ```json
 {
